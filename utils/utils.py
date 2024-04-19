@@ -20,20 +20,6 @@ def prepare_data(dataset_name:str, dataset_path:str, sizes: List[int]) -> None:
         df_sample.to_csv(f'/home/umbilnm/python_ml/AutomatizationPromptEngeneering/data/{dataset_name}_{size}.csv', index=False)
 
 
-def combine_gradient_prompt(df: pd.DataFrame, true_col:str, pred_col:str, text_col:str) -> str:
-    prediction_template = strings['templates']['prediction_template']
-    indexes = np.where(df[true_col] != df[pred_col])[0]
-    mapping = {1:'spam', 0:'ham'}
-    mistakes_template = '''There are examples where models answer is incorrect:\n'''
-    gradient_template = PromptTemplate(template=strings['templates']['gradient_template'],
-                                       input_variables=['prompt', 'error_string', 'num_feedbacks'])   
-    for idx in indexes:
-        pred, true, message = df.iloc[idx, :][pred_col], df.iloc[idx][true_col], df.iloc[idx][text_col]
-        mistakes_template += message + '\n'
-        mistakes_template +=f'True: {mapping[true]}\nPredicted: {mapping[pred]}\n'
-        mistakes_template += '------------------------------\n' 
-
-    return gradient_template.format(prompt=prediction_template, error_string=mistakes_template, num_feedbacks='3')
 
 def save_predictions(df:pd.DataFrame, text_col:str, pred_col:str, name:str) -> None:
     df[[text_col,pred_col]].to_csv(f'/home/umbilnm/python_ml/AutomatizationPromptEngeneering/data/predistions/{name}', index=False)

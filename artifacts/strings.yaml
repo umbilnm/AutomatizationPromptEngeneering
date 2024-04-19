@@ -12,6 +12,22 @@ templates:
     But this prompt gets the following examples wrong:
     {error_string}
 
-    give {num_feedbacks} reasons why the prompt could have gotten these examples wrong.
+    Give {num_feedbacks} reasons why the prompt could have gotten these examples wrong.
     Wrap each reason with <START> and <END>
+
+  transformation_template: |
+        I'm trying to write a zero-shot classifier.
+        
+        My current prompt is:
+        "{prompt}"
+
+        But it gets the following examples wrong:
+        {error_str}
+
+        Based on these examples the problem with this prompt is that {feedback_str}
+
+        Based on the above information, I wrote {steps_per_gradient} different improved prompts.
+        Wrap each prompt with <START> and <END>.
+
+        The {steps_per_gradient} new prompts are:
   
