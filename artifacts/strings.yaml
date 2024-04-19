@@ -1,0 +1,17 @@
+templates:
+  prediction_template: |
+    Determine if the message below is spam. 
+    Your answer should contain only one word: "Yes" if the message is spam, "No" otherwise.
+    Message: {message}
+  gradient_template: |
+    I'm trying to write a zero-shot classifier prompt.
+    
+    My current prompt is:
+    "{prompt}"
+
+    But this prompt gets the following examples wrong:
+    {error_string}
+
+    give {num_feedbacks} reasons why the prompt could have gotten these examples wrong.
+    Wrap each reason with <START> and <END>
+  
