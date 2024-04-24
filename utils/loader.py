@@ -17,7 +17,7 @@ llm = ChatOpenAI(
     model_name="gpt-3.5-turbo-1106",
     temperature=0.7,
     api_key=PROXY_API_KEY,
-    base_url="https://api.proxyapi.ru/openai/v1",
+    base_url="https://api.proxyapi.ru/openai/v1"
 )
 
 

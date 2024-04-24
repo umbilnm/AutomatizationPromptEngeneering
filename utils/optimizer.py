@@ -5,27 +5,28 @@ from tqdm import tqdm
 import random
 from utils.loader import strings, llm 
 from typing import List
+import logging
 
 class Protegi:
-    def evaluate_batch(self, df:pd.DataFrame, prompt:PromptTemplate, pred_col:str, true_col:str, text_col:str) -> pd.DataFrame:
-        template = strings['templates']['prediction_template']
-        template = PromptTemplate(template=template, input_variables=['message'])
-        messages = df['messages']
+    def evaluate_batch(self, df:pd.DataFrame, prompt:str, pred_col:str, true_col:str, text_col:str) -> pd.DataFrame:
+        messages = df[text_col]
         preds = []
-        for message in tqdm(messages):
-            prediction = llm.invoke(template.format(message=message)).content
+        for message in messages:
+            prediction = llm.invoke(prompt.format(message=message)).content
             preds.append(prediction)
-        df['predictions'] = 'ham' if prediction=='No' else 'spam'
+        
+        df[pred_col] = preds
+        df[pred_col] = df[pred_col].apply(lambda x: 'spam' if x=='Yes' else 'ham')
 
-        return df[text_col].values, df[true_col].values, df[pred_col].values, 
+        return df[text_col].values, df[true_col].values, df[pred_col].values
     
     def _sample_errors_string(self, true_val:np.array, pred_val:np.array, text_val:np.array)-> str:
         indexes = np.where(true_val != pred_val)[0]
         mapping = {0:'ham', 1:'spam'}
-        mistakes_template = '''There are examples where models answer is incorrect:\n'''
+        mistakes_template = ''
         for idx in indexes:
             mistakes_template += text_val[idx] + '\n'
-            mistakes_template +=f'True: {mapping[true_val[idx]]}\nPredicted: {mapping[pred_val[idx]]}\n'
+            mistakes_template +=f'True: {true_val[idx]}\nPredicted: {pred_val[idx]}\n'
             mistakes_template += '------------------------------\n' 
 
         return mistakes_template
@@ -52,56 +53,64 @@ class Protegi:
         # mistakes_template = self._sample_errors_string(df, true_col, pred_col, text_col)  
         
         answer = llm.invoke(gradient_template.format(prompt=prediction_template, error_string=mistakes_template, num_feedbacks='3'))
-        return answer, mistakes_template
+        answer = self.parse_tagged_text(answer.content, '<START>', '<END>')
+        res = [(t, mistakes_template) for t in answer]
+        return res
     
     def generate_synonyms(self, prompt_section):
         """ Generate synonyms for a prompt section."""
         rewriter_prompt = f"Generate a variation of the following instruction while keeping the semantic meaning.\n\nInput: {prompt_section}\n\nOutput:"
-        new_instructions = llm.invoke(rewriter_prompt)
-        new_instructions = [x for x in new_instructions if x]
+        new_instructions = [llm.invoke(rewriter_prompt).content]
+        # new_instructions = [x.content for x in new_instructions if x]
         return new_instructions
     
     
-    def apply_gradient(self, prompt, error_str:str, feedback_str:str, steps_per_gradient:int):
+    def apply_gradient(self, prompt:str, error_str:str, feedback_str:str, steps_per_gradient:int):
         """ Incorporate feedback gradient into a prompt."""
         transformation_prompt = strings['templates']['transformation_template']  
         res = llm.invoke(transformation_prompt.format(prompt=prompt, \
                                                error_str=error_str, feedback_str=feedback_str, steps_per_gradient=steps_per_gradient))
-        new_prompts = []
-        for r in res:   
-            new_prompts += self.parse_tagged_text(r.content, "<START>", "<END>")
+        new_prompts = []   
+        new_prompts += self.parse_tagged_text(res.content, "<START>", "<END>")
         return new_prompts
 
 
-    def expand_candidates(self, prompts, df, batch_size=10):
+    def expand_candidates(self, prompts:List[str], df:pd.DataFrame, batch_size:int=10):
         """ Expand a list of prompts by generating gradient-based successors and 
             synonyms for each section.
         """
-        minibatch = df.sample(batch_size)
+        minibatch = df.sample(batch_size, replace=False)
 
         new_prompts = []
-        for prompt in tqdm(prompts, desc=f'expanding {len(prompts)} prompts'):
-
+        for prompt in prompts:
+            logging.info('Evaluating batch...')
             # evaluate prompt on minibatch
-            texts, labels, preds = self.evaluate_batch(minibatch, prompt)
-            error_string = self._
+            texts, labels, preds = self.evaluate_batch(df=minibatch, prompt=prompt, pred_col='predictions',
+                                                       true_col='v1', text_col='v2')
+            
             # get gradients
             new_task_sections = []
-        
+            
+            logging.info('Sampling errors string')
             error_str = self._sample_errors_string(true_val=labels, pred_val=preds, text_val=texts)
+            
+            logging.info('Get gradient prompt')
             gradients = self._get_gradient(error_str)
             new_task_sections = []
-            for feedback, error_string in tqdm(gradients, desc='applying gradients'):
-                tmp = self.apply_gradient(error_string, feedback, self.opt['steps_per_gradient'])
+            
+            logging.info('Applying gradients')
+            for feedback, error_string in gradients:
+                tmp = self.apply_gradient(prompt, error_string, feedback, 3)
                 new_task_sections += tmp
 
+            logging.info('Generating synonyms')
             # generate synonyms
             mc_sampled_task_sections = []
-            if self.opt['mc_samples_per_step'] > 0:
-                for sect in tqdm(new_task_sections, desc='mc samples'):
-                    mc_sects = self.generate_synonyms(sect)
-                    mc_sampled_task_sections += mc_sects
-
+            for sect in new_task_sections:
+                mc_sects = self.generate_synonyms(sect)
+                mc_sampled_task_sections += mc_sects
+            # return mc_sampled_task_sections, new_task_sections
+            logging.info('Combine')
             # combine
             new_sections = new_task_sections + mc_sampled_task_sections
             new_sections = list(set(new_sections)) # dedup
@@ -135,3 +144,4 @@ class Protegi:
 
         return new_prompts
 
+    
