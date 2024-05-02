@@ -1,33 +1,34 @@
 templates:
-  prediction_template: |
-    Determine if the message below is spam. 
-    Your answer should contain only one word: "Yes" if the message is spam, "No" otherwise.
-    Message: {message}
-  gradient_template: |
-    I'm trying to write a zero-shot classifier prompt.
+  spam: 
+    prediction_template: |
+      Determine if the message below is spam. 
+      Your answer should contain only one word: "Yes" if the message is spam, "No" otherwise.
+      Message: {message}
+    gradient_template: |
+      I'm trying to write a zero-shot classifier prompt.
+      
+      My current prompt is:
+      "{prompt}"
+
+      But this prompt gets the following examples wrong:
+      {error_string}
+
+      Give {num_feedbacks} advices how to update the prompt to make it better for this examples.
+      Wrap each reason with <START> and <END>
+
+    transformation_template: |
+          I'm trying to write a zero-shot classifier.
+          
+          My current prompt is:
+          "{prompt}"
+
+          But it gets the following examples wrong:
+          {error_str}
+
+          Based on these examples there are few advices how to upgrade this prompt\n{feedback_str}
+
+          Based on the above information, I wrote {steps_per_gradient} different improved prompts.
+          Wrap each prompt with <START> and <END>.
+
+          The {steps_per_gradient} new prompts are:
     
-    My current prompt is:
-    "{prompt}"
-
-    But this prompt gets the following examples wrong:
-    {error_string}
-
-    Give {num_feedbacks} advices how to update the prompt to make it better for this examples.
-    Wrap each reason with <START> and <END>
-
-  transformation_template: |
-        I'm trying to write a zero-shot classifier.
-        
-        My current prompt is:
-        "{prompt}"
-
-        But it gets the following examples wrong:
-        {error_str}
-
-        Based on these examples there are few advices how to upgrade this prompt\n{feedback_str}
-
-        Based on the above information, I wrote {steps_per_gradient} different improved prompts.
-        Wrap each prompt with <START> and <END>.
-
-        The {steps_per_gradient} new prompts are:
-  

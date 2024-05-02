@@ -6,7 +6,6 @@ import random
 from utils.loader import strings 
 from typing import List
 from sklearn.metrics import f1_score, accuracy_score, recall_score, precision_score
-from langchain.prompts import PromptTemplate
 
 def set_all_seeds(seed:int) -> None:
     # python's seeds

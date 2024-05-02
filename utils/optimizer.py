@@ -10,6 +10,10 @@ from utils.loader import strings, llm
 from utils.utils import calculate_metrics
 
 class Protegi:
+    def __init__(self, task: str, salt:str):
+        self.task = task
+        self.salt = salt
+        self.scores = {}
     def evaluate_batch(self, df:pd.DataFrame, prompt:str, pred_col:str, true_col:str, text_col:str) -> pd.DataFrame:
         messages = df[text_col]
         preds = []
@@ -18,7 +22,9 @@ class Protegi:
             preds.append(prediction)
         df = df.copy()
         df[pred_col] = preds
-        df[pred_col] = df[pred_col].apply(lambda x: 'spam' if x=='Yes' else 'ham')
+        if self.task =='spam':
+
+            df[pred_col] = df[pred_col].apply(lambda x: 'spam' if x=='Yes' else 'ham')
 
         return df[text_col].values, df[true_col].values, df[pred_col].values
     
@@ -48,11 +54,10 @@ class Protegi:
         return texts
 
     def _get_gradient(self, mistakes_template) -> str:
-        prediction_template = strings['templates']['prediction_template']
-        gradient_template = PromptTemplate(template=strings['templates']['gradient_template'],
+        prediction_template = strings['templates'][self.task]['prediction_template']
+        gradient_template = PromptTemplate(template=strings['templates'][self.task]['gradient_template'],
                                         input_variables=['prompt', 'error_string', 'num_feedbacks']) 
-        # mistakes_template = self._sample_errors_string(df, true_col, pred_col, text_col)  
-        
+
         answer = llm.invoke(gradient_template.format(prompt=prediction_template, error_string=mistakes_template, num_feedbacks='3'))
         answer = self.parse_tagged_text(answer.content, '<START>', '<END>')
         res = [(t, mistakes_template) for t in answer]
@@ -62,13 +67,12 @@ class Protegi:
         """ Generate synonyms for a prompt section."""
         rewriter_prompt = f"Generate a variation of the following instruction while keeping the semantic meaning.\n\nInput: {prompt_section}\n\nOutput:"
         new_instructions = [llm.invoke(rewriter_prompt).content]
-        # new_instructions = [x.content for x in new_instructions if x]
         return new_instructions
     
     
     def apply_gradient(self, prompt:str, error_str:str, feedback_str:str, steps_per_gradient:int):
         """ Incorporate feedback gradient into a prompt."""
-        transformation_prompt = strings['templates']['transformation_template']  
+        transformation_prompt = strings['templates'][self.task]['transformation_template']  
         res = llm.invoke(transformation_prompt.format(prompt=prompt, \
                                                error_str=error_str, feedback_str=feedback_str, steps_per_gradient=steps_per_gradient))
         new_prompts = []   
@@ -84,11 +88,9 @@ class Protegi:
         new_prompts = []
         for prompt in prompts:
             logging.info('Evaluating batch...')
-            # evaluate prompt on minibatch
             texts, labels, preds = self.evaluate_batch(df=df, prompt=prompt, pred_col='predictions',
                                                        true_col='v1', text_col='v2')
             
-            # get gradients
             new_task_sections = []
             
             logging.info('Sampling errors string')
@@ -103,15 +105,8 @@ class Protegi:
                 tmp = self.apply_gradient(prompt, error_string, feedback, 3)
                 new_task_sections += tmp
 
-            # logging.info('Generating synonyms')
-            # # generate synonyms
             mc_sampled_task_sections = []
-            # for sect in new_task_sections:
-            #     mc_sects = self.generate_synonyms(sect)
-            #     mc_sampled_task_sections += mc_sects
-            # return mc_sampled_task_sections, new_task_sections
             logging.info('Combine')
-            # combine
             new_sections = new_task_sections + mc_sampled_task_sections
             new_sections = list(set(new_sections)) # dedup
             tmp_new_prompts = [
@@ -125,14 +120,14 @@ class Protegi:
         new_prompts = list(filter(lambda x: '{message}' in x, new_prompts))
         return new_prompts
 
-    def score_candidates(self, candidates:List[str], eval_dataset:pd.DataFrame, task:str) -> float:
+    def score_candidates(self, candidates:List[str], eval_dataset:pd.DataFrame, task:str) -> dict:
         """ Score a list of candidates."""
-        scores = {}
+        
         for candidate in candidates:
-            texts, labels, preds = self.evaluate_batch(df=eval_dataset, prompt=candidate, pred_col='predictions',
+            _, labels, preds = self.evaluate_batch(df=eval_dataset, prompt=candidate, pred_col='predictions',
                                             true_col='v1', text_col='v2')
             metrics = calculate_metrics(labels, preds, task)
-            scores[candidate] = metrics['f1']
-            with open ('./artifacts/results/spam_results.json', 'w') as fp:
-                json.dump(scores,fp)
-        return scores
+            self.scores[candidate] = metrics['f1']
+            with open (f'./artifacts/results/{self.task}_results_{self.salt}.json', 'w') as fp:
+                json.dump(self.scores,fp)
+        return self.scores
