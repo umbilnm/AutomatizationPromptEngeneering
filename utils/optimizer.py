@@ -1,20 +1,22 @@
-from langchain.prompts import PromptTemplate
-import pandas as pd
-import numpy as np
+from collections import OrderedDict
+import json
 from tqdm import tqdm
-import random
-from utils.loader import strings, llm 
 from typing import List
 import logging
+import pandas as pd
+import numpy as np
+from langchain.prompts import PromptTemplate
+from utils.loader import strings, llm
+from utils.utils import calculate_metrics
 
 class Protegi:
     def evaluate_batch(self, df:pd.DataFrame, prompt:str, pred_col:str, true_col:str, text_col:str) -> pd.DataFrame:
         messages = df[text_col]
         preds = []
-        for message in messages:
+        for message in tqdm(messages):
             prediction = llm.invoke(prompt.format(message=message)).content
             preds.append(prediction)
-        
+        df = df.copy()
         df[pred_col] = preds
         df[pred_col] = df[pred_col].apply(lambda x: 'spam' if x=='Yes' else 'ham')
 
@@ -22,7 +24,6 @@ class Protegi:
     
     def _sample_errors_string(self, true_val:np.array, pred_val:np.array, text_val:np.array)-> str:
         indexes = np.where(true_val != pred_val)[0]
-        mapping = {0:'ham', 1:'spam'}
         mistakes_template = ''
         for idx in indexes:
             mistakes_template += text_val[idx] + '\n'
@@ -75,17 +76,16 @@ class Protegi:
         return new_prompts
 
 
-    def expand_candidates(self, prompts:List[str], df:pd.DataFrame, batch_size:int=10):
+    def expand_candidates(self, prompts:List[str], df:pd.DataFrame) -> List[str]:
         """ Expand a list of prompts by generating gradient-based successors and 
             synonyms for each section.
         """
-        minibatch = df.sample(batch_size, replace=False)
-
+ 
         new_prompts = []
         for prompt in prompts:
             logging.info('Evaluating batch...')
             # evaluate prompt on minibatch
-            texts, labels, preds = self.evaluate_batch(df=minibatch, prompt=prompt, pred_col='predictions',
+            texts, labels, preds = self.evaluate_batch(df=df, prompt=prompt, pred_col='predictions',
                                                        true_col='v1', text_col='v2')
             
             # get gradients
@@ -103,12 +103,12 @@ class Protegi:
                 tmp = self.apply_gradient(prompt, error_string, feedback, 3)
                 new_task_sections += tmp
 
-            logging.info('Generating synonyms')
-            # generate synonyms
+            # logging.info('Generating synonyms')
+            # # generate synonyms
             mc_sampled_task_sections = []
-            for sect in new_task_sections:
-                mc_sects = self.generate_synonyms(sect)
-                mc_sampled_task_sections += mc_sects
+            # for sect in new_task_sections:
+            #     mc_sects = self.generate_synonyms(sect)
+            #     mc_sampled_task_sections += mc_sects
             # return mc_sampled_task_sections, new_task_sections
             logging.info('Combine')
             # combine
@@ -118,30 +118,21 @@ class Protegi:
                 tmp 
                 for tmp in new_sections
             ]
-            
-            # # filter a little
-            # if len(new_sections) > self.opt['max_expansion_factor']:
-            #     if self.opt['reject_on_errors']:
-            #         error_exs = []
-            #         for i, (t, l, p) in enumerate(zip(texts, labels, preds)):
-            #             if l != p:
-            #                 error_exs.append({'text': t, 'label': l})
-            #         error_exs = random.sample(error_exs, min(len(error_exs), 16))
-
-            #         # speed up a little
-            #         tmp_new_prompts = random.sample(tmp_new_prompts, min(len(tmp_new_prompts), self.opt['max_expansion_factor'] * 2))
-
-            #         error_scores = self.bf_eval(tmp_new_prompts, error_exs, task, gpt4, self.scorer, max_threads=self.max_threads)
-            #         tmp_new_prompts = [tmp_new_prompts[i] for i in np.argsort(error_scores)[-self.opt['max_expansion_factor']:]]
-            #     else:
-            #         tmp_new_prompts = random.sample(tmp_new_prompts, 
-            #             k=self.opt['max_expansion_factor'])
-
             new_prompts += tmp_new_prompts
 
         new_prompts += prompts # add originals
         new_prompts = list(set(new_prompts)) # dedup
-
+        new_prompts = list(filter(lambda x: '{message}' in x, new_prompts))
         return new_prompts
 
-    
+    def score_candidates(self, candidates:List[str], eval_dataset:pd.DataFrame, task:str) -> float:
+        """ Score a list of candidates."""
+        scores = {}
+        for candidate in candidates:
+            texts, labels, preds = self.evaluate_batch(df=eval_dataset, prompt=candidate, pred_col='predictions',
+                                            true_col='v1', text_col='v2')
+            metrics = calculate_metrics(labels, preds, task)
+            scores[candidate] = metrics['f1']
+            with open ('./artifacts/results/spam_results.json', 'w') as fp:
+                json.dump(scores,fp)
+        return scores
