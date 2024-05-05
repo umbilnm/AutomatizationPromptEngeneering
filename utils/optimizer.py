@@ -6,19 +6,21 @@ import logging
 import pandas as pd
 import numpy as np
 from langchain.prompts import PromptTemplate
-from utils.loader import strings, llm
+from utils.loader import strings
 from utils.utils import calculate_metrics
 
 class Protegi:
-    def __init__(self, task: str, salt:str):
+    def __init__(self, task: str, salt:str, llm):
         self.task = task
         self.salt = salt
         self.scores = {}
+        self.llm = llm
+        
     def evaluate_batch(self, df:pd.DataFrame, prompt:str, pred_col:str, true_col:str, text_col:str) -> pd.DataFrame:
         messages = df[text_col]
         preds = []
         for message in tqdm(messages):
-            prediction = llm.invoke(prompt.format(message=message)).content
+            prediction = self.llm.invoke(prompt.format(message=message)).content
             preds.append(prediction)
         df = df.copy()
         df[pred_col] = preds
@@ -58,26 +60,26 @@ class Protegi:
         gradient_template = PromptTemplate(template=strings['templates'][self.task]['gradient_template'],
                                         input_variables=['prompt', 'error_string', 'num_feedbacks']) 
 
-        answer = llm.invoke(gradient_template.format(prompt=prediction_template, error_string=mistakes_template, num_feedbacks='3'))
+        answer = self.llm.invoke(gradient_template.format(prompt=prediction_template, error_string=mistakes_template, num_feedbacks='3'))
         answer = self.parse_tagged_text(answer.content, '<START>', '<END>')
         res = [(t, mistakes_template) for t in answer]
-        return res
+        return res, answer
     
     def generate_synonyms(self, prompt_section):
         """ Generate synonyms for a prompt section."""
         rewriter_prompt = f"Generate a variation of the following instruction while keeping the semantic meaning.\n\nInput: {prompt_section}\n\nOutput:"
-        new_instructions = [llm.invoke(rewriter_prompt).content]
+        new_instructions = [self.llm.invoke(rewriter_prompt).content]
         return new_instructions
     
     
     def apply_gradient(self, prompt:str, error_str:str, feedback_str:str, steps_per_gradient:int):
         """ Incorporate feedback gradient into a prompt."""
         transformation_prompt = strings['templates'][self.task]['transformation_template']  
-        res = llm.invoke(transformation_prompt.format(prompt=prompt, \
+        res = self.llm.invoke(transformation_prompt.format(prompt=prompt, \
                                                error_str=error_str, feedback_str=feedback_str, steps_per_gradient=steps_per_gradient))
         new_prompts = []   
         new_prompts += self.parse_tagged_text(res.content, "<START>", "<END>")
-        return new_prompts
+        return new_prompts, res
 
 
     def expand_candidates(self, prompts:List[str], df:pd.DataFrame) -> List[str]:

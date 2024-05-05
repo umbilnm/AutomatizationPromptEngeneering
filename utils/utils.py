@@ -25,7 +25,6 @@ def prepare_data(dataset_name:str, dataset_path:str, sizes: List[int]) -> None:
 def save_predictions(df:pd.DataFrame, text_col:str, pred_col:str, name:str) -> None:
     df[[text_col,pred_col]].to_csv(f'/home/umbilnm/python_ml/AutomatizationPromptEngeneering/data/predistions/{name}', index=False)
 
-
 def calculate_metrics(labels: np.ndarray, preds: np.ndarray, task: str) -> dict:
     with open(f'./artifacts/json_mappings/{task}_map.json') as f:
         mapping = json.load(f)
